@@ -1,0 +1,8 @@
+[package]
+name = "init"
+version = "0.1.0"
+edition = "2021"
+authors = ["Sushant Bajracharya <sussyoung9@gmail.com>"]
+
+[dependencies]
+tokio = { version = "1.42.0", default-features = false, features = ["full"] }
