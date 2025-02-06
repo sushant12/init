@@ -1,3 +1,4 @@
+use futures::TryStreamExt;
 use log::{debug, info, LevelFilter};
 use nix::mount::{mount, MsFlags};
 use nix::sys::stat::Mode;
@@ -11,7 +12,6 @@ use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_vsock::{VsockAddr, VsockListener};
 use warp::Filter;
-
 #[derive(Deserialize, Debug)]
 struct ExecRequest {
     cmd: Vec<String>,
@@ -97,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(_) => {}
     };
     // Configure networking
-    // configure_networking().await?;
+    configure_networking().await?;
 
     // Start the vsock listener
     let listener = VsockListener::bind(VsockAddr::new(3, 10000))?;
@@ -132,41 +132,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Ok(())
 }
 
-// async fn configure_networking() -> Result<(), Box<dyn std::error::Error>> {
-//     let (connection, handle, _) = new_connection().unwrap();
-//     tokio::spawn(connection);
+async fn configure_networking() -> Result<(), Box<dyn std::error::Error>> {
+    let (connection, handle, _) = new_connection().unwrap();
+    tokio::spawn(connection);
 
-//     let iface_name = "eth0";
-//     let ip_address = "172.16.0.2/30";
-//     let gateway = "172.16.0.1";
+    info!("netlink: getting lo link");
+    let lo = handle
+        .link()
+        .get()
+        .match_name("lo".into())
+        .execute()
+        .try_next()
+        .await?
+        .expect("no lo link found");
 
-//     let iface = handle
-//         .link()
-//         .get()
-//         .match_name(iface_name.to_string())
-//         .execute()
-//         .try_next()
-//         .await?
-//         .ok_or_else(|| format!("No such interface: {}", iface_name))?;
+    info!("netlink: setting lo link \"up\"");
+    handle.link().set(lo.header.index).up().execute().await?;
 
-//     handle.link().set(iface.header.index).up().execute().await?;
+    info!("netlink: getting eth0 link");
+    let eth0 = handle
+        .link()
+        .get()
+        .match_name("eth0".into())
+        .execute()
+        .try_next()
+        .await?
+        .expect("no eth0 link found");
 
-//     handle
-//         .address()
-//         .add(iface.header.index, ip_address.parse()?)
-//         .execute()
-//         .await?;
+    info!("netlink: setting eth0 link \"up\"");
+    handle
+        .link()
+        .set(eth0.header.index)
+        .up()
+        .mtu(1420)
+        .execute()
+        .await?;
 
-//     handle
-//         .route()
-//         .add()
-//         .default()
-//         .gateway(gateway.parse()?)
-//         .execute()
-//         .await?;
-
-//     Ok(())
-// }
+    Ok(())
+}
 
 async fn handle_exec(req: ExecRequest) -> Result<impl warp::Reply, warp::Rejection> {
     // Log the received request
