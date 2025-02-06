@@ -2,9 +2,11 @@ use log::{debug, info, LevelFilter};
 use nix::mount::{mount, MsFlags};
 use nix::sys::stat::Mode;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{chdir, chroot, mkdir};
+use nix::unistd::{chdir, chroot, mkdir, sethostname};
+use rtnetlink::new_connection;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs::write;
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_vsock::{VsockAddr, VsockListener};
@@ -77,6 +79,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Change directory to /
     chdir("/")?;
 
+    // Create /etc directory
+    info!("Creating /etc directory...");
+    mkdir("/etc", Mode::S_IRWXU).ok();
+
+    // Create /etc/resolv.conf for DNS resolution
+    info!("Creating /etc/resolv.conf for DNS resolution...");
+    write("/etc/resolv.conf", "nameserver 8.8.8.8\n")?;
+
+    // Create /etc/hosts for local network resolution
+    info!("Creating /etc/hosts for local network resolution...");
+    write("/etc/hosts", "127.0.0.1 localhost\n")?;
+    // Set hostname
+    info!("Setting hostname...");
+    match sethostname("hostname-1") {
+        Err(e) => info!("error setting hostname: {}", e),
+        Ok(_) => {}
+    };
+    // Configure networking
+    // configure_networking().await?;
+
     // Start the vsock listener
     let listener = VsockListener::bind(VsockAddr::new(3, 10000))?;
     info!("Listening on vsock CID 3, port 10000");
@@ -109,6 +131,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Ok(())
 }
+
+// async fn configure_networking() -> Result<(), Box<dyn std::error::Error>> {
+//     let (connection, handle, _) = new_connection().unwrap();
+//     tokio::spawn(connection);
+
+//     let iface_name = "eth0";
+//     let ip_address = "172.16.0.2/30";
+//     let gateway = "172.16.0.1";
+
+//     let iface = handle
+//         .link()
+//         .get()
+//         .match_name(iface_name.to_string())
+//         .execute()
+//         .try_next()
+//         .await?
+//         .ok_or_else(|| format!("No such interface: {}", iface_name))?;
+
+//     handle.link().set(iface.header.index).up().execute().await?;
+
+//     handle
+//         .address()
+//         .add(iface.header.index, ip_address.parse()?)
+//         .execute()
+//         .await?;
+
+//     handle
+//         .route()
+//         .add()
+//         .default()
+//         .gateway(gateway.parse()?)
+//         .execute()
+//         .await?;
+
+//     Ok(())
+// }
 
 async fn handle_exec(req: ExecRequest) -> Result<impl warp::Reply, warp::Rejection> {
     // Log the received request
