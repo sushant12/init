@@ -646,6 +646,7 @@ name = "init"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "futures",
  "log",
  "nix 0.29.0",
  "rtnetlink",
