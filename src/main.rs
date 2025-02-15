@@ -5,7 +5,7 @@ use log::{info, LevelFilter};
 use nix::mount::{mount, MsFlags};
 use nix::sys::stat::Mode;
 use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{chdir, chroot, mkdir, sethostname};
+use nix::unistd::{chdir, chroot, mkdir, sethostname, symlinkat};
 use rtnetlink::new_connection;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -17,6 +17,7 @@ use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_vsock::{VsockAddr, VsockListener};
 use warp::Filter;
+
 #[derive(Deserialize, Debug)]
 struct ExecRequest {
     cmd: Vec<String>,
@@ -45,6 +46,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => LevelFilter::Info,
     };
     env_logger::builder().filter_level(log_level).init();
+    let common_mnt_flags: MsFlags = MsFlags::MS_NODEV | MsFlags::MS_NOEXEC | MsFlags::MS_NOSUID;
+    let chmod_0755: Mode =
+        Mode::S_IRWXU | Mode::S_IRGRP | Mode::S_IXGRP | Mode::S_IROTH | Mode::S_IXOTH;
+    let chmod_1777: Mode = Mode::S_IRWXU | Mode::S_IRWXG | Mode::S_IRWXO | Mode::S_ISVTX;
 
     let file = File::open("/fly/run.json")?;
     let reader = BufReader::new(file);
@@ -86,6 +91,82 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Change root to the current directory (new root)
     chroot(".")?;
     chdir("/")?;
+    mkdir("/dev/pts", chmod_0755).ok();
+    mount(
+        Some("devpts"),
+        "/dev/pts",
+        Some("devpts"),
+        MsFlags::MS_NOEXEC | MsFlags::MS_NOSUID | MsFlags::MS_NOATIME,
+        Some("mode=0620,gid=5,ptmxmode=666"),
+    )?;
+
+    info!("Mounting /dev/mqueue");
+    mkdir("/dev/mqueue", chmod_0755).ok();
+    mount::<_, _, _, [u8]>(
+        Some("mqueue"),
+        "/dev/mqueue",
+        Some("mqueue"),
+        common_mnt_flags,
+        None,
+    )?;
+
+    info!("Mounting /dev/shm");
+    mkdir("/dev/shm", chmod_1777).ok();
+    mount::<_, _, _, [u8]>(
+        Some("shm"),
+        "/dev/shm",
+        Some("tmpfs"),
+        MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+        None,
+    )?;
+    info!("Mounting /proc...");
+    mkdir("/proc", Mode::S_IRWXU).ok();
+    mount(
+        Some("proc"),
+        "/proc",
+        Some("proc"),
+        common_mnt_flags,
+        None::<&str>,
+    )?;
+
+    info!("Mounting /sys...");
+    mkdir("/sys", Mode::S_IRWXU).ok();
+    mount(
+        Some("sys"),
+        "/sys",
+        Some("sysfs"),
+        common_mnt_flags,
+        None::<&str>,
+    )?;
+
+    info!("Mounting /run...");
+    mkdir("/run", Mode::S_IRWXU).ok();
+    mount(
+        Some("run"),
+        "/run",
+        Some("tmpfs"),
+        MsFlags::MS_NOSUID | MsFlags::MS_NODEV,
+        Some("mode=0755"),
+    )?;
+    mkdir("/run/lock", Mode::all()).ok();
+
+    info!("Mounting /proc/sys/fs/binfmt_misc...");
+    mkdir("/proc/sys/fs/binfmt_misc", Mode::S_IRWXU).ok();
+    mount(
+        Some("binfmt_misc"),
+        "/proc/sys/fs/binfmt_misc",
+        Some("binfmt_misc"),
+        common_mnt_flags | MsFlags::MS_RELATIME,
+        None::<&str>,
+    )?;
+
+    symlinkat("/proc/self/fd", None, "/dev/fd").ok();
+    symlinkat("/proc/self/fd/0", None, "/dev/stdin").ok();
+    symlinkat("/proc/self/fd/1", None, "/dev/stdout").ok();
+    symlinkat("/proc/self/fd/2", None, "/dev/stderr").ok();
+    mkdir("/root", Mode::S_IRWXU).ok();
+    rlimit::setrlimit(rlimit::Resource::NOFILE, 10240, 10240).ok();
+
     for file_config in run_config.files {
         let decoded_data = general_purpose::STANDARD.decode(&file_config.raw_value)?;
         let mut file = OpenOptions::new()
