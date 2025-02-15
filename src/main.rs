@@ -1,6 +1,7 @@
+use base64::{engine::general_purpose, Engine as _};
 use core::net::Ipv4Addr;
 use futures::TryStreamExt;
-use log::{debug, info, LevelFilter};
+use log::{info, LevelFilter};
 use nix::mount::{mount, MsFlags};
 use nix::sys::stat::Mode;
 use nix::sys::wait::{waitpid, WaitStatus};
@@ -9,6 +10,8 @@ use rtnetlink::new_connection;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::write;
+use std::fs::{File, OpenOptions};
+use std::io::{BufReader, Write};
 use std::net::IpAddr;
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
@@ -24,6 +27,17 @@ struct ExecResponse {
     output: String,
 }
 
+#[derive(Deserialize, Debug)]
+struct FileConfig {
+    guest_path: String,
+    raw_value: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct RunConfig {
+    files: Vec<FileConfig>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let log_level = match env::var("RUST_LOG") {
@@ -31,6 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => LevelFilter::Info,
     };
     env_logger::builder().filter_level(log_level).init();
+
+    let file = File::open("/fly/run.json")?;
+    let reader = BufReader::new(file);
+    let run_config: RunConfig = serde_json::from_reader(reader)?;
+    info!("Run configuration: {:?}", run_config);
 
     info!("Creating /dev directory...");
     mkdir("/dev", Mode::S_IRWXU)?;
@@ -67,7 +86,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Change root to the current directory (new root)
     chroot(".")?;
     chdir("/")?;
+    for file_config in run_config.files {
+        let decoded_data = general_purpose::STANDARD.decode(&file_config.raw_value)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&file_config.guest_path)?;
+        file.write_all(&decoded_data)?;
+        info!("Saved file: {}", file_config.guest_path);
+    }
 
+    // let output = Command::new("cat").arg("file1.txt").output().await?;
+    // info!(
+    //     "Directory listing:\n{}",
+    //     String::from_utf8_lossy(&output.stdout)
+    // );
     info!("Creating /etc directory...");
     mkdir("/etc", Mode::S_IRWXU).ok();
 
