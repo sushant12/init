@@ -1,0 +1,52 @@
+{
+    "ImageConfig": {
+      "Entrypoint": null,
+      "Cmd": ["/bin/sleep", "inf"],
+      "Env": ["PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"],
+      "WorkingDir": "/",
+      "User": "nobody"
+    },
+    "ExecOverride": null,
+    "ExtraEnv": null,
+    "UserOverride": null,
+    "CmdOverride": null,
+    "IPConfigs": [
+      {
+        "Gateway": "172.17.0.1/24",
+        "IP": "172.17.0.2/24",
+        "Mask": 24
+      }
+    ],
+    "Tty": true,
+    "Hostname": "container-1",
+    "Mounts": null,
+    "RootDevice": null,
+    "EtcResolv": {
+      "Nameservers": [
+        "8.8.8.8",
+        "8.8.4.4"
+      ]
+    },
+    "EtcHosts": [
+      {
+        "Host": "localhost",
+        "IP": "127.0.0.1",
+        "Desc": "Local loopback"
+      },
+      {
+        "Host": "container-1",
+        "IP": "172.17.0.2",
+        "Desc": "Container hostname"
+      }
+    ],
+    "files": [
+      {
+        "guest_path": "file1.txt",
+        "raw_value": "eyJrZXkiOiAidmFsdWUxIn0="
+      },
+      {
+        "guest_path": "file2.txt",
+        "raw_value": "eyJrZXkiOiAidmFsdWUyIn0="
+      }
+    ]
+  }
