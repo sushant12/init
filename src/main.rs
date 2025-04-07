@@ -17,6 +17,9 @@ use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_vsock::{VsockAddr, VsockListener};
 use warp::Filter;
+#[macro_use]
+pub mod macros;
+pub mod sys;
 
 #[derive(Deserialize, Debug)]
 struct ExecRequest {
@@ -37,6 +40,35 @@ struct FileConfig {
 #[derive(Deserialize, Debug)]
 struct RunConfig {
     files: Vec<FileConfig>,
+}
+
+pub enum ApiReply<A, B> {
+    Ok(A),
+    Err(B),
+}
+
+impl<A, B> warp::Reply for ApiReply<A, B>
+where
+    A: warp::Reply,
+    B: warp::Reply,
+{
+    fn into_response(self) -> warp::reply::Response {
+        let mut res = match self {
+            ApiReply::Ok(a) => a.into_response(),
+            ApiReply::Err(b) => b.into_response(),
+        };
+        let headers = res.headers_mut();
+        headers.insert(
+            "fly-init-version",
+            warp::http::header::HeaderValue::from_str("1").unwrap(),
+        );
+        res
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ErrorMessage {
+    message: String,
 }
 
 #[tokio::main]
@@ -200,15 +232,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = VsockListener::bind(VsockAddr::new(3, 10000))?;
     info!("Listening on vsock CID 3, port 10000");
+    let v1 = warp::path("v1");
 
-    let routes = warp::path("v1")
-        .and(warp::path("exec"))
+    let status_show = v1.and(warp::path("status"));
+    let get_status = warp::get().and(status_show).map(status);
+
+    let sysinfo_index = v1.and(warp::path("sysinfo"));
+
+    let get_sysinfo = warp::get().and(sysinfo_index).map(sys::list_sysinfo);
+    let post_exec = 
+        v1.and(warp::path("exec"))
         .and(warp::post())
         .and(warp::body::json())
         .and_then(handle_exec);
 
     tokio::spawn(async move {
-        warp::serve(routes).run_incoming(listener.incoming()).await;
+        warp::serve(combine!(
+            get_status,
+            get_sysinfo,
+            post_exec,
+        )).run_incoming(listener.incoming()).await;
     });
 
     // Spawn a task to reap zombie processes
@@ -227,6 +270,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Ok(())
+}
+
+pub fn status() -> impl warp::Reply {
+    warp::reply::json(&serde_json::json!({"ok": true}))
 }
 
 async fn configure_networking() -> Result<(), Box<dyn std::error::Error>> {
