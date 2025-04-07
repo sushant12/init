@@ -1,6 +1,3 @@
-# Makefile for downloading Firecracker and kernel binaries
-
-# Variables
 ARCH := $(shell uname -m)
 BIN_DIR := bin
 WGET_QUIET := -q
@@ -8,7 +5,6 @@ RELEASE_URL := https://github.com/firecracker-microvm/firecracker/releases
 CARGO_TARGET = x86_64-unknown-linux-musl
 SOCKET_PATH ?= /tmp/firecracker.socket
 VSOCK_PATH ?= /tmp/firecracker-vsock.sock
-# Ensure the bin directory exists
 $(shell mkdir -p $(BIN_DIR))
 
 .PHONY: all clean firecracker kernel rootfs build tmpinit run 
@@ -33,9 +29,9 @@ tmpinit:
 	mkdir -p $(BIN_DIR)/initmount
 	-sudo umount $(BIN_DIR)/initmount
 	sudo mount -o loop,noatime $(BIN_DIR)/tmpinit $(BIN_DIR)/initmount
-	sudo mkdir -p $(BIN_DIR)/initmount/fly
-	sudo cp target/$(CARGO_TARGET)/release/init $(BIN_DIR)/initmount/fly/init
-	sudo cp run.json $(BIN_DIR)/initmount/fly/run.json
+	sudo mkdir -p $(BIN_DIR)/initmount/firestarter
+	sudo cp target/$(CARGO_TARGET)/release/init $(BIN_DIR)/initmount/firestarter/init
+	sudo cp run.json $(BIN_DIR)/initmount/firestarter/run.json
 	sudo umount $(BIN_DIR)/initmount
 	sudo rm -rf $(BIN_DIR)/initmount
 

@@ -17,6 +17,8 @@ rtnetlink = "0.14.1"
 futures = "0.3.31"
 base64 = "0.22.1"
 rlimit = "0.10.2"
+anyhow = "1.0.33"
+procfs = "0.7.7"
 
 [profile.release]
 lto = true
